@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"
+         InitialTargets="init"
+         DefaultTargets="help"
+         ToolsVersion="4.0">
+  <!-- since this is referenced by Project/InitialTargets, it will always be run -->
+  <Target Name="init" >
+    <Message Text="Initialized!" />
+  </Target>
+
+  <!-- the default target when /t: is not specified in the command line -->
+  <Target Name="help">
+    <Message Text="Nothing here.  Try another target."/>
+  </Target>
+
+  <!-- environment variables are automatically converted to properties -->
+  <Target Name="path">
+    <!-- case insensitive -->
+    <Message Text="$(path)" />
+  </Target>
+
+  <!-- properties are scalar values, like a dictionary.  they are global values. -->
+  <PropertyGroup>
+    <A>a</A>
+    <!-- properties already defined can be redefined with themselves -->
+    <Path>$(Path);c:\dev</Path>
+  </PropertyGroup>
+
+  <!-- demonstration of overwriting values and lack of scope, i.e. if a property gets overwritten, that's the new value -->
+  <Target Name="prop-pass">
+    <Message Text="A is $(a)" />
+    <PropertyGroup>
+      <A>b</A>
+    </PropertyGroup>
+    <Message Text="A is $(a)" />
+  </Target>
+  <Target Name="prop-pass2">
+    <Message Text="A is $(a)" />
+  </Target>
+
+  <!-- Target has useful attributes like DependsOnTargets, BeforeTargets, AfterTargets -->
+  <!-- specifying Inputs and Outputs will allow the target to create timestamps and only run if the inputs and/or outputs changed physically -->
+  <Target Name="build" DependsOnTargets="help">
+    <ItemGroup>
+      <!-- wild cards: * matches 0 or more of any -->
+      <!-- wild cards: ? matches 1 of any -->
+      <!-- wild cards: ** matches 0 or more folders/sub-folders -->
+      <Files Include=".\..\**\*.cs;.\..\**\ap?.config" Exclude=".\..\**\obj\**\*" />
+    </ItemGroup>
+    <Message Text="@(Files)" />
+    
+    <!-- file items have default metadata available: see http://msdn.microsoft.com/en-us/library/ms164313.aspx -->
+  </Target>
+
+  <Target Name="item-meta">
+    <!-- with items, you can specify metadata -->
+    <ItemGroup>
+      <Metadata Include="A">
+        <Key1>1</Key1>
+        <Key2>2</Key2>
+      </Metadata>
+      <!-- every additional entry adds to the list of 'Metadata' -->
+      <Metadata Include="B">
+        <Key1>3</Key1>
+        <Key2>4</Key2>
+      </Metadata>
+    </ItemGroup>
+
+    <!-- run task multiple times for each meta property -->
+    <Message Text="Referencing single: %(Metadata.Key1)" />
+    <Message Text="Referencing multiple: %(Metadata.Identity)%(Metadata.Key1)%(Metadata.Key2)" />
+
+    <!-- convert into a single scalar to be executed once -->
+    <Message Text="@(Metadata->'%(Key1)%(Key2)')" />
+
+    <!-- same thing, with a different seperator -->
+    <Message Text="@(Metadata->'%(Key1)%(Key2)', '^^')" />
+  </Target>
+
+  <Target Name="conditions">
+    <!-- conditions are available on almost anything.  if the condition fails, the task doesn't get run -->
+    <Message Text="path is never empty, so this will be printed." Condition="$(path) != ''" />
+
+    <!-- works with properties as well -->
+    <PropertyGroup>
+      <!-- this type of thing is common in scripts -->
+      <DebugSymbols Condition="$(DebugSymbols) == ''">Yes</DebugSymbols>
+      <!-- see http://msdn.microsoft.com/en-us/library/7szfhaft.aspx for the full list of supported conditions -->
+    </PropertyGroup>
+  </Target>
+
+  <!-- more complicated conditions at the project level -->
+  <Choose>
+    <!-- demonstration of MSBuild property functions -->
+    <When Condition="$(path.Contains('c:'))">
+      <PropertyGroup>
+        <PathHasC>true</PathHasC>
+      </PropertyGroup>
+    </When>
+    <!-- referencing a static method -->
+    <When Condition="$([System.String]::Compare($(Path), 'c:')) != 0">
+      <PropertyGroup>
+        <PathHasC>true</PathHasC>
+        <!-- and even using math! -->
+        <YayMath>$([MSBuild]::Add(1, 2))</YayMath>
+      </PropertyGroup>
+    </When>
+    
+    <!-- see http://msdn.microsoft.com/en-us/library/dd633440.aspx for property function goodness -->
+  </Choose>
+
+  <Target Name="conditions2">
+    <Message Text="$(PathHasC)" />
+    <Message Text="$(YayMath)" />
+  </Target>
+
+  <!-- inline csharp task -->
+  <UsingTask TaskName="CreateGuids"
+             TaskFactory="CodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v4.0.dll" >
+    <ParameterGroup>
+      <InputParam ParameterType="System.String" />
+      <Guids ParameterType="System.String[]" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Reference Include="WindowsBase"/>
+      <Reference Include="PresentationCore"/>
+      <Reference Include="PresentationFramework"/>
+      <Reference Include="System.Xaml"/>
+      <Code Type="Fragment" Language="cs">
+        <![CDATA[
+            Log.LogMessage("The input was " + InputParam);
+            
+            var guids = new List<string>();
+            for (int i = 0; i < 3; i++)
+            {
+                guids.Add(Guid.NewGuid().ToString());
+            }
+            Guids = guids.ToArray();
+            
+            // cryptic example of creating (possibly multiple) UI threads
+            var t = new System.Threading.Thread(() => {
+              var w = new System.Windows.Window();
+              w.Title="Hello World!";
+              w.Content = new System.Windows.Shapes.Ellipse { Fill = System.Windows.Media.Brushes.Red };
+              w.Show();
+              w.Closed += delegate { w.Dispatcher.InvokeShutdown(); };
+              System.Windows.Threading.Dispatcher.Run();
+            });
+            t.SetApartmentState(System.Threading.ApartmentState.STA);
+            t.Start();
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="cs">
+    <CreateGuids InputParam="888">
+      <!-- output parameters are routed with the Output entry.  ItemName is the name of the property to store the value.  TaskParameter is the property of the task. -->
+      <Output ItemName="GuidsOutput" TaskParameter="Guids" />
+    </CreateGuids>
+    <Message Text="@(GuidsOutput)" />
+  </Target>
+
+
+  <!-- simple import, works like an include from other languages -->
+  <Import Project=".\lib\MSBuild.ExtensionPack.tasks" />
+
+  <UsingTask TaskFactory="PowershellTaskFactory"
+             AssemblyFile=".\lib\MSBuild.ExtensionPack.TaskFactory.PowerShell.dll"
+             TaskName="Powershell">
+    <ParameterGroup>
+      <in Required="true" ParameterType="System.String[]" />
+      <out Output="true" />
+    </ParameterGroup>
+    <Task>
+      <![CDATA[
+      $in | % { $log.LogMessage($_) }
+      $log.LogMessage("hello, how are you?")
+      $log.LogMessage($log.GetType())
+      $out = "wasssup!?"
+       ]]>
+    </Task>
+  </UsingTask>
+
+  <Target Name="powershell">
+    <ItemGroup>
+      <Files Include=".\**\*" />
+    </ItemGroup>
+    <Powershell in="@(Files)" />
+    <Message Text="$(out)" />
+  </Target>
+</Project>
